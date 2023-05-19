@@ -21,6 +21,7 @@
     <script>
         let localPeerConnection;
         let dataChannel;
+        let iceCandidates = [];
         const startButton = document.getElementById('startButton');
         const submitButton = document.getElementById('submitButton');
         const localSessionDescriptionTextArea = document.getElementById('localSessionDescription');
@@ -40,15 +41,18 @@
             dataChannel = localPeerConnection.createDataChannel("chat");
             setupDataChannel();
 
-            localPeerConnection.oniceconnectionstatechange = handleConnectionChange;
             localPeerConnection.onicecandidate = handleIceCandidate;
+            localPeerConnection.oniceconnectionstatechange = handleConnectionChange;
 
             localPeerConnection.createOffer().then(offer => {
                 return localPeerConnection.setLocalDescription(offer);
             })
             .then(() => {
-                // Display the local description to be copied by the other peer
-                localSessionDescriptionTextArea.value = JSON.stringify(localPeerConnection.localDescription);
+                // Display the local description and ICE candidates to be copied by the other peer
+                localSessionDescriptionTextArea.value = JSON.stringify({
+                    sdp: localPeerConnection.localDescription,
+                    iceCandidates: iceCandidates
+                });
             })
             .catch(logError);
         }
@@ -74,16 +78,21 @@
             console.log('icecandidate event:', event);
             if (event.candidate) {
                 console.log('ICE candidate:\n' + event.candidate.candidate);
+                iceCandidates.push(event.candidate);
             }
         }
 
         function submit() {
-            const remoteSessionDescription = JSON.parse(remoteSessionDescriptionTextArea.value);
-            const remoteDescription = new RTCSessionDescription(remoteSessionDescription);
+            const sessionData = JSON.parse(remoteSessionDescriptionTextArea.value);
+            const remoteDescription = new RTCSessionDescription(sessionData.sdp);
+            const remoteIceCandidates = sessionData.iceCandidates;
 
             localPeerConnection.setRemoteDescription(remoteDescription)
                 .then(() => {
                     console.log('Received remote description');
+                    remoteIceCandidates.forEach(candidate => {
+                        localPeerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                    });
                 })
                 .catch(logError);
         }
