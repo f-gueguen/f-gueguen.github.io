@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC Signaling</title>
+</head>
+<body>
+    <h2>WebRTC Signaling</h2>
+    <textarea id="localSessionDescription" readonly></textarea>
+    <br/>
+    <textarea id="remoteSessionDescription" placeholder="Paste remote session description here"></textarea>
+    <br/>
+    <button id="startButton">Start</button>
+    <button id="submitButton">Submit Remote Desc.</button>
+    <hr/>
+    <h2>Chat</h2>
+    <input id="messageInput" type="text" placeholder="Enter message">
+    <button id="sendMessageButton">Send Message</button>
+    <ul id="messages"></ul>
+
+    <script>
+        let localPeerConnection;
+        let dataChannel;
+        const startButton = document.getElementById('startButton');
+        const submitButton = document.getElementById('submitButton');
+        const localSessionDescriptionTextArea = document.getElementById('localSessionDescription');
+        const remoteSessionDescriptionTextArea = document.getElementById('remoteSessionDescription');
+        const messageInput = document.getElementById('messageInput');
+        const sendMessageButton = document.getElementById('sendMessageButton');
+        const messages = document.getElementById('messages');
+
+        startButton.addEventListener('click', start);
+        submitButton.addEventListener('click', submit);
+        sendMessageButton.addEventListener('click', sendMessage);
+
+        function start() {
+            localPeerConnection = new RTCPeerConnection();
+
+            // Create a data channel
+            dataChannel = localPeerConnection.createDataChannel("chat");
+            setupDataChannel();
+
+            localPeerConnection.onicecandidate = handleIceCandidate;
+
+            localPeerConnection.createOffer().then(offer => {
+                return localPeerConnection.setLocalDescription(offer);
+            })
+            .then(() => {
+                // Display the local description to be copied by the other peer
+                localSessionDescriptionTextArea.value = JSON.stringify(localPeerConnection.localDescription);
+            })
+            .catch(logError);
+        }
+
+        function handleIceCandidate(event) {
+            console.log('icecandidate event:', event);
+            if (event.candidate) {
+                console.log('ICE candidate:\n' + event.candidate.candidate);
+            }
+        }
+
+        function submit() {
+            const remoteSessionDescription = JSON.parse(remoteSessionDescriptionTextArea.value);
+            const remoteDescription = new RTCSessionDescription(remoteSessionDescription);
+
+            localPeerConnection.setRemoteDescription(remoteDescription)
+                .then(() => {
+                    console.log('Received remote description');
+                })
+                .catch(logError);
+        }
+
+        function sendMessage() {
+            const message = messageInput.value;
+            dataChannel.send(message);
+            addMessageToList('Sent: ' + message);
+            messageInput.value = '';
+        }
+
+        function setupDataChannel() {
+            dataChannel.onmessage = handleDataChannelMessage;
+            dataChannel.onopen = handleDataChannelOpen;
+            dataChannel.onclose = handleDataChannelClose;
+        }
+
+        function handleDataChannelMessage(event) {
+            addMessageToList('Received: ' + event.data);
+        }
+
+        function handleDataChannelOpen() {
+            addMessageToList('Data Channel Opened');
+        }
+
+        function handleDataChannelClose() {
+            addMessageToList('Data Channel Closed');
+        }
+
+        function addMessageToList(message) {
+            const li = document.createElement('li');
+            li.textContent = message;
+            messages.appendChild(li);
+        }
+
+        function logError(error) {
+            console.log(error.name + ': ' + error.message);
+        }
+    </script>
+</body>
+</html>
