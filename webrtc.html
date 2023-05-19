@@ -12,6 +12,7 @@
     <button id="startButton">Start</button>
     <button id="submitButton">Submit Remote Desc.</button>
     <hr/>
+    <h2>Status: <span id="status">Disconnected</span></h2>
     <h2>Chat</h2>
     <input id="messageInput" type="text" placeholder="Enter message">
     <button id="sendMessageButton">Send Message</button>
@@ -39,6 +40,7 @@
             dataChannel = localPeerConnection.createDataChannel("chat");
             setupDataChannel();
 
+            localPeerConnection.oniceconnectionstatechange = handleConnectionChange;
             localPeerConnection.onicecandidate = handleIceCandidate;
 
             localPeerConnection.createOffer().then(offer => {
@@ -49,6 +51,23 @@
                 localSessionDescriptionTextArea.value = JSON.stringify(localPeerConnection.localDescription);
             })
             .catch(logError);
+        }
+
+        function handleConnectionChange() {
+            const state = localPeerConnection.iceConnectionState;
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = capitalize(state);
+
+            if (state === 'connected' || state === 'completed') {
+                sendMessageButton.disabled = false;
+            } else {
+                sendMessageButton.disabled = true;
+            }
+        }
+
+        function capitalize(s) {
+            if (typeof s !== 'string') return '';
+            return s.charAt(0).toUpperCase() + s.slice(1);
         }
 
         function handleIceCandidate(event) {
@@ -71,9 +90,13 @@
 
         function sendMessage() {
             const message = messageInput.value;
-            dataChannel.send(message);
-            addMessageToList('Sent: ' + message);
-            messageInput.value = '';
+            if (dataChannel.readyState === 'open') {
+                dataChannel.send(message);
+                addMessageToList('Sent: ' + message);
+                messageInput.value = '';
+            } else {
+                console.log('Data channel is not open');
+            }
         }
 
         function setupDataChannel() {
