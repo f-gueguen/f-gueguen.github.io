@@ -84,14 +84,14 @@
         connectButton.addEventListener('click', connect);
         sendMessageButton.addEventListener('click', sendMessage);
 
+        // Display connection states
+        localPeerConnection.onconnectionstatechange = handleConnectionStateChange;
+        localPeerConnection.oniceconnectionstatechange = handleIceConnectionStateChange;
+
         async function start() {
             // Create a data channel
             dataChannel = localPeerConnection.createDataChannel('chat');
             setupDataChannel();
-
-            // Display connection states
-            localPeerConnection.onconnectionstatechange = handleConnectionStateChange;
-            localPeerConnection.oniceconnectionstatechange = handleIceConnectionStateChange;
 
             // Handle ICE candidates
             localPeerConnection.onicecandidate = handleIceCandidate;
