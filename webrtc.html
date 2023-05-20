@@ -223,15 +223,23 @@
         }
 
         async function createAnswer() {
-            const remoteOffer = JSON.parse(remoteOfferDescriptionTextArea.value);
-            const description = await WebRTCModule.createAnswer(remoteOffer);
+            try {
+                const remoteOffer = JSON.parse(remoteOfferDescriptionTextArea.value);
+                const description = await WebRTCModule.createAnswer(remoteOffer);
 
-            localAnswerDescriptionTextArea.value = JSON.stringify(description);
+                localAnswerDescriptionTextArea.value = JSON.stringify(description);
+            } catch (err) {
+                console.error('Invalid JSON in the remote offer text area', err);
+            }
         }
 
         async function connect() {
-            const remoteAnswer = JSON.parse(remoteAnswerDescriptionTextArea.value);
-            await WebRTCModule.connect(remoteAnswer);
+            try {
+                const remoteAnswer = JSON.parse(remoteAnswerDescriptionTextArea.value);
+                await WebRTCModule.connect(remoteAnswer);
+            } catch (err) {
+                console.error('Invalid JSON in the remote answer text area', err);
+            }
         }
 
         function sendMessage() {
