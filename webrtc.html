@@ -60,9 +60,136 @@
     <ul id="messages"></ul>
 
     <script>
-        let localPeerConnection = setupPeerConnection();
-        let dataChannel;
-        let iceCandidates = [];
+        const WebRTCModule = (function () {
+            let localPeerConnection;
+            let dataChannel;
+            let iceCandidates = [];
+
+            function init() {
+                localPeerConnection = setupPeerConnection();
+            }
+
+            function setupPeerConnection() {
+                let pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+
+                pc.onconnectionstatechange = handleConnectionStateChange;
+                pc.oniceconnectionstatechange = handleIceConnectionStateChange;
+
+                return pc;
+            }
+
+            async function start(channelName = 'aChannel') {
+                dataChannel = localPeerConnection.createDataChannel(channelName);
+                setupDataChannel();
+
+                localPeerConnection.onicecandidate = handleIceCandidate;
+
+                const offer = await localPeerConnection.createOffer();
+                return setAndReturnLocalDescription(offer);
+            }
+
+
+            async function createAnswer(remoteOffer) {
+                await localPeerConnection.setRemoteDescription(new RTCSessionDescription(remoteOffer));
+
+                localPeerConnection.ondatachannel = (event) => {
+                    dataChannel = event.channel;
+                    setupDataChannel();
+                };
+
+                const answer = await localPeerConnection.createAnswer();
+                return setAndReturnLocalDescription(answer);
+            }
+
+            async function setAndReturnLocalDescription(localDescription) {
+                await localPeerConnection.setLocalDescription(localDescription);
+
+                await new Promise(resolve => {
+                    localPeerConnection.onicegatheringstatechange = () => {
+                        if (localPeerConnection.iceGatheringState === 'complete') {
+                            resolve();
+                        }
+                    };
+                });
+
+                return { ...localPeerConnection.localDescription.toJSON(), iceCandidates };
+            }
+
+            async function connect(remoteAnswer) {
+                await localPeerConnection.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
+            }
+
+            function sendMessage(message) {
+                dataChannel.send(message);
+            }
+
+            function setupDataChannel() {
+                dataChannel.onmessage = handleDataChannelMessage;
+                dataChannel.onopen = handleDataChannelOpen;
+                dataChannel.onclose = handleDataChannelClose;
+            }
+
+            function handleIceCandidate(event) {
+                if (event.candidate) {
+                    iceCandidates.push(event.candidate.toJSON());
+                } else {
+                    // Trigger event to let the application code know the ice gathering is complete
+                    const customEvent = new CustomEvent('iceGatheringComplete', { detail: { ...localPeerConnection.localDescription.toJSON(), iceCandidates } });
+                    document.dispatchEvent(customEvent);
+                }
+            }
+
+            function handleDataChannelMessage(event) {
+                // Trigger event to let the application code know a message has been received
+                const customEvent = new CustomEvent('messageReceived', { detail: event.data });
+                document.dispatchEvent(customEvent);
+            }
+
+            function handleDataChannelOpen() {
+                // Trigger event to let the application code know the data channel has been opened
+                const event = new CustomEvent('dataChannelOpen');
+                document.dispatchEvent(event);
+            }
+
+            function handleDataChannelClose() {
+                // Trigger event to let the application code know the data channel has been closed
+                const event = new CustomEvent('dataChannelClose');
+                document.dispatchEvent(event);
+            }
+
+            async function handleConnectionStateChange() {
+                // Trigger event to let the application code know the connection state has changed
+                const event = new CustomEvent('connectionStateChange', { detail: localPeerConnection.connectionState });
+                document.dispatchEvent(event);
+
+                if (localPeerConnection.connectionState === 'failed' || localPeerConnection.connectionState === 'disconnected') {
+                    // Cleanup previous connection and create a new one
+                    localPeerConnection.onconnectionstatechange = null;
+                    localPeerConnection.oniceconnectionstatechange = null;
+                    localPeerConnection = setupPeerConnection();
+
+                    // Start a new connection
+                    await start();
+                }
+            }
+
+            function handleIceConnectionStateChange() {
+                // Trigger event to let the application code know the ice connection state has changed
+                const event = new CustomEvent('iceConnectionStateChange', { detail: localPeerConnection.iceConnectionState });
+                document.dispatchEvent(event);
+            }
+
+            // Public API
+            return {
+                init,
+                start,
+                createAnswer,
+                connect,
+                sendMessage
+            };
+        })();
+
+        WebRTCModule.init();
 
         const startButton = document.getElementById('startButton');
         const createAnswerButton = document.getElementById('createAnswerButton');
@@ -84,68 +211,44 @@
         connectButton.addEventListener('click', connect);
         sendMessageButton.addEventListener('click', sendMessage);
 
-        function setupPeerConnection() {
-            let pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-
-            pc.onconnectionstatechange = handleConnectionStateChange;
-            pc.oniceconnectionstatechange = handleIceConnectionStateChange;
-
-            return pc;
-        }
 
         async function start() {
-            dataChannel = localPeerConnection.createDataChannel('chat');
-            setupDataChannel();
+            startButton.disabled = true; // disable the start button while we gather ICE candidates
+            await WebRTCModule.start('chat');
 
-            localPeerConnection.onicecandidate = handleIceCandidate;
-
-            const offer = await localPeerConnection.createOffer();
-            await localPeerConnection.setLocalDescription(offer);
+            document.addEventListener('iceGatheringComplete', event => {
+                startButton.disabled = false; // re-enable the start button
+                localSessionDescriptionTextArea.value = JSON.stringify(event.detail);
+            });
         }
 
         async function createAnswer() {
             const remoteOffer = JSON.parse(remoteOfferDescriptionTextArea.value);
-            await localPeerConnection.setRemoteDescription(new RTCSessionDescription(remoteOffer));
+            const description = await WebRTCModule.createAnswer(remoteOffer);
 
-            localPeerConnection.ondatachannel = (event) => {
-                dataChannel = event.channel;
-                setupDataChannel();
-            };
-
-            const answer = await localPeerConnection.createAnswer();
-            await localPeerConnection.setLocalDescription(answer);
-
-            localAnswerDescriptionTextArea.value = JSON.stringify(localPeerConnection.localDescription);
+            localAnswerDescriptionTextArea.value = JSON.stringify(description);
         }
 
         async function connect() {
             const remoteAnswer = JSON.parse(remoteAnswerDescriptionTextArea.value);
-            await localPeerConnection.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
+            await WebRTCModule.connect(remoteAnswer);
         }
 
         function sendMessage() {
             const message = messageInput.value;
-            dataChannel.send(message);
+            WebRTCModule.sendMessage(message);
             addMessageToList('Sent: ' + message);
             messageInput.value = '';
         }
 
-        function setupDataChannel() {
-            dataChannel.onmessage = handleDataChannelMessage;
-            dataChannel.onopen = handleDataChannelOpen;
-            dataChannel.onclose = handleDataChannelClose;
-        }
-
-        function handleIceCandidate(event) {
-            if (event.candidate) {
-                iceCandidates.push(event.candidate.toJSON());
-            } else {
-                localSessionDescriptionTextArea.value = JSON.stringify({ ...localPeerConnection.localDescription.toJSON(), iceCandidates });
-            }
-        }
+        document.addEventListener('messageReceived', handleDataChannelMessage);
+        document.addEventListener('dataChannelOpen', handleDataChannelOpen);
+        document.addEventListener('dataChannelClose', handleDataChannelClose);
+        document.addEventListener('connectionStateChange', handleConnectionStateChange);
+        document.addEventListener('iceConnectionStateChange', handleIceConnectionStateChange);
 
         function handleDataChannelMessage(event) {
-            addMessageToList('Received: ' + event.data);
+            addMessageToList('Received: ' + event.detail);
         }
 
         function handleDataChannelOpen() {
@@ -158,22 +261,12 @@
             addMessageToList('Data Channel Closed');
         }
 
-        async function handleConnectionStateChange() {
-            connectionStateElement.textContent = capitalize(localPeerConnection.connectionState);
-
-            if (localPeerConnection.connectionState === 'failed' || localPeerConnection.connectionState === 'disconnected') {
-                // Cleanup previous connection and create a new one
-                localPeerConnection.onconnectionstatechange = null;
-                localPeerConnection.oniceconnectionstatechange = null;
-                localPeerConnection = setupPeerConnection();
-
-                // Start a new connection
-                await start();
-            }
+        function handleConnectionStateChange(event) {
+            connectionStateElement.textContent = event.detail;
         }
 
-        function handleIceConnectionStateChange() {
-            iceConnectionStateElement.textContent = capitalize(localPeerConnection.iceConnectionState);
+        function handleIceConnectionStateChange(event) {
+            iceConnectionStateElement.textContent = event.detail;
         }
 
         function addMessageToList(message) {
@@ -181,11 +274,7 @@
             li.textContent = message;
             messages.appendChild(li);
         }
-
-        function capitalize(s) {
-            if (typeof s !== 'string') return '';
-            return s.charAt(0).toUpperCase() + s.slice(1);
-        }
     </script>
 </body>
+
 </html>
