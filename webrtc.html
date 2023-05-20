@@ -34,7 +34,7 @@
         submitButton.addEventListener('click', submit);
         sendMessageButton.addEventListener('click', sendMessage);
 
-        function start() {
+        async function start() {
             localPeerConnection = new RTCPeerConnection();
 
             // Create a data channel
@@ -44,34 +44,18 @@
             localPeerConnection.onicecandidate = handleIceCandidate;
             localPeerConnection.oniceconnectionstatechange = handleConnectionChange;
 
-            localPeerConnection.createOffer().then(offer => {
-                return localPeerConnection.setLocalDescription(offer);
-            })
-            .then(() => {
-                // Display the local description and ICE candidates to be copied by the other peer
-                localSessionDescriptionTextArea.value = JSON.stringify({
-                    sdp: localPeerConnection.localDescription,
-                    iceCandidates: iceCandidates
-                });
-            })
-            .catch(logError);
-        }
-
-        function handleConnectionChange() {
-            const state = localPeerConnection.iceConnectionState;
-            const statusElement = document.getElementById('status');
-            statusElement.textContent = capitalize(state);
-
-            if (state === 'connected' || state === 'completed') {
-                sendMessageButton.disabled = false;
-            } else {
-                sendMessageButton.disabled = true;
+            localPeerConnection.onicegatheringstatechange = async () => {
+                if (localPeerConnection.iceGatheringState === 'complete') {
+                    // Display the local description and ICE candidates to be copied by the other peer
+                    localSessionDescriptionTextArea.value = JSON.stringify({
+                        sdp: localPeerConnection.localDescription,
+                        iceCandidates: iceCandidates
+                    });
+                }
             }
-        }
 
-        function capitalize(s) {
-            if (typeof s !== 'string') return '';
-            return s.charAt(0).toUpperCase() + s.slice(1);
+            const offer = await localPeerConnection.createOffer();
+            await localPeerConnection.setLocalDescription(offer);
         }
 
         function handleIceCandidate(event) {
@@ -82,19 +66,31 @@
             }
         }
 
-        function submit() {
+        async function submit() {
             const sessionData = JSON.parse(remoteSessionDescriptionTextArea.value);
             const remoteDescription = new RTCSessionDescription(sessionData.sdp);
             const remoteIceCandidates = sessionData.iceCandidates;
 
-            localPeerConnection.setRemoteDescription(remoteDescription)
-                .then(() => {
-                    console.log('Received remote description');
-                    remoteIceCandidates.forEach(candidate => {
-                        localPeerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-                    });
-                })
-                .catch(logError);
+            await localPeerConnection.setRemoteDescription(remoteDescription);
+            console.log('Set remote description');
+            remoteIceCandidates.forEach(candidate => {
+                localPeerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+
+            if (remoteDescription.type === 'offer') {
+                const answer = await localPeerConnection.createAnswer();
+                await localPeerConnection.setLocalDescription(answer);
+
+                localPeerConnection.onicegatheringstatechange = async () => {
+                    if (localPeerConnection.iceGatheringState === 'complete') {
+                        // Display the local answer to be copied by the other peer
+                        localSessionDescriptionTextArea.value = JSON.stringify({
+                            sdp: localPeerConnection.localDescription,
+                            iceCandidates: iceCandidates
+                        });
+                    }
+                }
+            }
         }
 
         function sendMessage() {
@@ -126,10 +122,27 @@
             addMessageToList('Data Channel Closed');
         }
 
+        function handleConnectionChange() {
+            const state = localPeerConnection.iceConnectionState;
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = capitalize(state);
+
+            if (state === 'connected' || state === 'completed') {
+                sendMessageButton.disabled = false;
+            } else {
+                sendMessageButton.disabled = true;
+            }
+        }
+
         function addMessageToList(message) {
             const li = document.createElement('li');
             li.textContent = message;
             messages.appendChild(li);
+        }
+
+        function capitalize(s) {
+            if (typeof s !== 'string') return '';
+            return s.charAt(0).toUpperCase() + s.slice(1);
         }
 
         function logError(error) {
