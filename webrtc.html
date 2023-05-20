@@ -60,7 +60,7 @@
     <ul id="messages"></ul>
 
     <script>
-        let localPeerConnection;
+        let localPeerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
         let dataChannel;
         let iceCandidates = [];
 
@@ -85,8 +85,6 @@
         sendMessageButton.addEventListener('click', sendMessage);
 
         async function start() {
-            localPeerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-
             // Create a data channel
             dataChannel = localPeerConnection.createDataChannel('chat');
             setupDataChannel();
