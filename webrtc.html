@@ -60,7 +60,7 @@
     <ul id="messages"></ul>
 
     <script>
-        let localPeerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        let localPeerConnection = setupPeerConnection();
         let dataChannel;
         let iceCandidates = [];
 
@@ -84,16 +84,19 @@
         connectButton.addEventListener('click', connect);
         sendMessageButton.addEventListener('click', sendMessage);
 
-        // Display connection states
-        localPeerConnection.onconnectionstatechange = handleConnectionStateChange;
-        localPeerConnection.oniceconnectionstatechange = handleIceConnectionStateChange;
+        function setupPeerConnection() {
+            let pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+
+            pc.onconnectionstatechange = handleConnectionStateChange;
+            pc.oniceconnectionstatechange = handleIceConnectionStateChange;
+
+            return pc;
+        }
 
         async function start() {
-            // Create a data channel
             dataChannel = localPeerConnection.createDataChannel('chat');
             setupDataChannel();
 
-            // Handle ICE candidates
             localPeerConnection.onicecandidate = handleIceCandidate;
 
             const offer = await localPeerConnection.createOffer();
@@ -155,8 +158,18 @@
             addMessageToList('Data Channel Closed');
         }
 
-        function handleConnectionStateChange() {
+        async function handleConnectionStateChange() {
             connectionStateElement.textContent = capitalize(localPeerConnection.connectionState);
+
+            if (localPeerConnection.connectionState === 'failed' || localPeerConnection.connectionState === 'disconnected') {
+                // Cleanup previous connection and create a new one
+                localPeerConnection.onconnectionstatechange = null;
+                localPeerConnection.oniceconnectionstatechange = null;
+                localPeerConnection = setupPeerConnection();
+
+                // Start a new connection
+                await start();
+            }
         }
 
         function handleIceConnectionStateChange() {
