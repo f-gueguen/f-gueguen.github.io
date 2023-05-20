@@ -104,6 +104,11 @@
             const remoteOffer = JSON.parse(remoteOfferDescriptionTextArea.value);
             await localPeerConnection.setRemoteDescription(new RTCSessionDescription(remoteOffer));
 
+            localPeerConnection.ondatachannel = (event) => {
+                dataChannel = event.channel;
+                setupDataChannel();
+            };
+
             const answer = await localPeerConnection.createAnswer();
             await localPeerConnection.setLocalDescription(answer);
 
