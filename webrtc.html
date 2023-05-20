@@ -1,18 +1,59 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>WebRTC Signaling</title>
+    <meta charset="UTF-8">
+    <title>WebRTC</title>
 </head>
 <body>
     <h2>WebRTC Signaling</h2>
-    <textarea id="localSessionDescription" readonly></textarea>
-    <br/>
-    <textarea id="remoteSessionDescription" placeholder="Paste remote session description here"></textarea>
-    <br/>
-    <button id="startButton">Start</button>
-    <button id="submitButton">Submit Remote Desc.</button>
-    <hr/>
-    <h2>Status: <span id="status">Disconnected</span></h2>
+
+    <table width="100%" border="1">
+        <tr>
+            <th>#</th>
+            <th>Initiator</th>
+            <th>Receiver</th>
+        </tr>
+        <tr>
+            <td>Step 1</td>
+            <td>
+                <button id="startButton">Create Offer</button>
+                <textarea id="localSessionDescription" placeholder="Offer will be shown here" readonly></textarea>
+            </td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>Step 2</td>
+            <td></td>
+            <td>
+                <textarea id="remoteOfferDescription" placeholder="Paste offer from Initiator here"></textarea>
+                <button id="createAnswerButton">Create Answer</button>
+                <textarea id="localAnswerDescription" placeholder="Answer will be shown here" readonly></textarea>
+            </td>
+        </tr>
+        <tr>
+            <td>Step 3</td>
+            <td>
+                <textarea id="remoteAnswerDescription" placeholder="Paste answer from Receiver here"></textarea>
+                <button id="connectButton">Connect</button>
+            </td>
+            <td></td>
+        </tr>
+    </table>
+
+    <hr>
+    <h2>Status</h2>
+    <table border="1">
+        <tr>
+            <th>Connection State</th>
+            <td id="connectionState">Unknown</td>
+        </tr>
+        <tr>
+            <th>ICE Connection State</th>
+            <td id="iceConnectionState">Unknown</td>
+        </tr>
+    </table>
+
+    <hr>
     <h2>Chat</h2>
     <input id="messageInput" type="text" placeholder="Enter message">
     <button id="sendMessageButton">Send Message</button>
@@ -22,86 +63,65 @@
         let localPeerConnection;
         let dataChannel;
         let iceCandidates = [];
+
         const startButton = document.getElementById('startButton');
-        const submitButton = document.getElementById('submitButton');
-        const localSessionDescriptionTextArea = document.getElementById('localSessionDescription');
-        const remoteSessionDescriptionTextArea = document.getElementById('remoteSessionDescription');
-        const messageInput = document.getElementById('messageInput');
+        const createAnswerButton = document.getElementById('createAnswerButton');
+        const connectButton = document.getElementById('connectButton');
         const sendMessageButton = document.getElementById('sendMessageButton');
+
+        const localSessionDescriptionTextArea = document.getElementById('localSessionDescription');
+        const remoteOfferDescriptionTextArea = document.getElementById('remoteOfferDescription');
+        const localAnswerDescriptionTextArea = document.getElementById('localAnswerDescription');
+        const remoteAnswerDescriptionTextArea = document.getElementById('remoteAnswerDescription');
+
+        const messageInput = document.getElementById('messageInput');
         const messages = document.getElementById('messages');
+        const connectionStateElement = document.getElementById('connectionState');
+        const iceConnectionStateElement = document.getElementById('iceConnectionState');
 
         startButton.addEventListener('click', start);
-        submitButton.addEventListener('click', submit);
+        createAnswerButton.addEventListener('click', createAnswer);
+        connectButton.addEventListener('click', connect);
         sendMessageButton.addEventListener('click', sendMessage);
 
         async function start() {
-            localPeerConnection = new RTCPeerConnection();
+            localPeerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
             // Create a data channel
-            dataChannel = localPeerConnection.createDataChannel("chat");
+            dataChannel = localPeerConnection.createDataChannel('chat');
             setupDataChannel();
 
-            localPeerConnection.onicecandidate = handleIceCandidate;
-            localPeerConnection.oniceconnectionstatechange = handleConnectionChange;
+            // Display connection states
+            localPeerConnection.onconnectionstatechange = handleConnectionStateChange;
+            localPeerConnection.oniceconnectionstatechange = handleIceConnectionStateChange;
 
-            localPeerConnection.onicegatheringstatechange = async () => {
-                if (localPeerConnection.iceGatheringState === 'complete') {
-                    // Display the local description and ICE candidates to be copied by the other peer
-                    localSessionDescriptionTextArea.value = JSON.stringify({
-                        sdp: localPeerConnection.localDescription,
-                        iceCandidates: iceCandidates
-                    });
-                }
-            }
+            // Handle ICE candidates
+            localPeerConnection.onicecandidate = handleIceCandidate;
 
             const offer = await localPeerConnection.createOffer();
             await localPeerConnection.setLocalDescription(offer);
         }
 
-        function handleIceCandidate(event) {
-            console.log('icecandidate event:', event);
-            if (event.candidate) {
-                console.log('ICE candidate:\n' + event.candidate.candidate);
-                iceCandidates.push(event.candidate);
-            }
+        async function createAnswer() {
+            const remoteOffer = JSON.parse(remoteOfferDescriptionTextArea.value);
+            await localPeerConnection.setRemoteDescription(new RTCSessionDescription(remoteOffer));
+
+            const answer = await localPeerConnection.createAnswer();
+            await localPeerConnection.setLocalDescription(answer);
+
+            localAnswerDescriptionTextArea.value = JSON.stringify(localPeerConnection.localDescription);
         }
 
-        async function submit() {
-            const sessionData = JSON.parse(remoteSessionDescriptionTextArea.value);
-            const remoteDescription = new RTCSessionDescription(sessionData.sdp);
-            const remoteIceCandidates = sessionData.iceCandidates;
-
-            await localPeerConnection.setRemoteDescription(remoteDescription);
-            console.log('Set remote description');
-            remoteIceCandidates.forEach(candidate => {
-                localPeerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-            });
-
-            if (remoteDescription.type === 'offer') {
-                const answer = await localPeerConnection.createAnswer();
-                await localPeerConnection.setLocalDescription(answer);
-
-                localPeerConnection.onicegatheringstatechange = async () => {
-                    if (localPeerConnection.iceGatheringState === 'complete') {
-                        // Display the local answer to be copied by the other peer
-                        localSessionDescriptionTextArea.value = JSON.stringify({
-                            sdp: localPeerConnection.localDescription,
-                            iceCandidates: iceCandidates
-                        });
-                    }
-                }
-            }
+        async function connect() {
+            const remoteAnswer = JSON.parse(remoteAnswerDescriptionTextArea.value);
+            await localPeerConnection.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
         }
 
         function sendMessage() {
             const message = messageInput.value;
-            if (dataChannel.readyState === 'open') {
-                dataChannel.send(message);
-                addMessageToList('Sent: ' + message);
-                messageInput.value = '';
-            } else {
-                console.log('Data channel is not open');
-            }
+            dataChannel.send(message);
+            addMessageToList('Sent: ' + message);
+            messageInput.value = '';
         }
 
         function setupDataChannel() {
@@ -110,28 +130,34 @@
             dataChannel.onclose = handleDataChannelClose;
         }
 
+        function handleIceCandidate(event) {
+            if (event.candidate) {
+                iceCandidates.push(event.candidate.toJSON());
+            } else {
+                localSessionDescriptionTextArea.value = JSON.stringify({ ...localPeerConnection.localDescription.toJSON(), iceCandidates });
+            }
+        }
+
         function handleDataChannelMessage(event) {
             addMessageToList('Received: ' + event.data);
         }
 
         function handleDataChannelOpen() {
+            sendMessageButton.disabled = false;
             addMessageToList('Data Channel Opened');
         }
 
         function handleDataChannelClose() {
+            sendMessageButton.disabled = true;
             addMessageToList('Data Channel Closed');
         }
 
-        function handleConnectionChange() {
-            const state = localPeerConnection.iceConnectionState;
-            const statusElement = document.getElementById('status');
-            statusElement.textContent = capitalize(state);
+        function handleConnectionStateChange() {
+            connectionStateElement.textContent = capitalize(localPeerConnection.connectionState);
+        }
 
-            if (state === 'connected' || state === 'completed') {
-                sendMessageButton.disabled = false;
-            } else {
-                sendMessageButton.disabled = true;
-            }
+        function handleIceConnectionStateChange() {
+            iceConnectionStateElement.textContent = capitalize(localPeerConnection.iceConnectionState);
         }
 
         function addMessageToList(message) {
@@ -143,10 +169,6 @@
         function capitalize(s) {
             if (typeof s !== 'string') return '';
             return s.charAt(0).toUpperCase() + s.slice(1);
-        }
-
-        function logError(error) {
-            console.log(error.name + ': ' + error.message);
         }
     </script>
 </body>
